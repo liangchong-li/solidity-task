@@ -27,14 +27,21 @@ describe("NFTAuction", function () {
 
         let tx = await testERC20.connect(signer).transfer(buyer1, ethers.parseEther("1000"));
         await tx.wait();
+
+        // 向buyer2转4000个
+        tx = await testERC20.connect(signer).transfer(buyer2, ethers.parseEther("4000"));
+        await tx.wait();
         
         // 查看signer余额
         const signerBal = await testERC20.balanceOf(signer.address);
         // 查看 buyer1余额
         const buyer1Bal = await testERC20.balanceOf(buyer1.address);
+        // 查看 buyer2余额
+        const buyer2Bal = await testERC20.balanceOf(buyer2.address);
 
-        expect(signerBal).to.equal(ethers.parseEther("99000"));
+        expect(signerBal).to.equal(ethers.parseEther("95000"));
         expect(buyer1Bal).to.equal(ethers.parseEther("1000"));
+        expect(buyer2Bal).to.equal(ethers.parseEther("4000"));
 
 
         // 创建测试预言机
@@ -60,10 +67,7 @@ describe("NFTAuction", function () {
         // 设置预言机地址
         // 遍历token2Usd
         for (const item of token2Usd) {
-            // const { token, priceFeed } = item;
             await nftAuction.setPriceFeed(item.token, item.priceFeed);
-            // const tx = await nftAuction.connect(signer).setPriceFeed(item);
-            // await tx.wait();
         }
         
         // 验证预言机地址
@@ -77,12 +81,13 @@ describe("NFTAuction", function () {
         const TestERC721 = await ethers.getContractFactory("TestERC721");
         const testERC721 = await TestERC721.deploy();
         await testERC721.waitForDeployment();
-        const testERC721Address = await testERC20.getAddress();
+        const testERC721Address = await testERC721.getAddress();
         console.log("TestERC721 deployed to:", testERC721Address);
+
 
         // mint 10 个 NFT
         for(let i = 0; i < 10; i++) {
-            await testERC721.mint(signer);
+            await testERC721.mint(signer.address, i + 1);
         }
 
         // 查看账户NFT
@@ -91,43 +96,58 @@ describe("NFTAuction", function () {
     
         // 检查所有权
         for(let i = 0; i < 10; i++) {
-            expect(await testERC721.ownerOf(i)).to.equal(signer.address);
+            expect(await testERC721.ownerOf(i + 1)).to.equal(signer.address);
         }
         
         // 给代理合约授权
         // 未授权时，在创建拍卖时，无法将NFT转到合约
         await testERC721.connect(signer).setApprovalForAll(nftAuctionProxy.address, true);
+        const isApproved = await testERC721.isApprovedForAll(signer.address, nftAuctionProxy.address);
+        expect(isApproved).to.equal(true);
 
         // 2. 创建拍卖
-        // uint256 duration, uint256 startingPrice, uint256 nftTokenId, address nftTokenAddress
+        const tokenId = 1;
         console.log("创建拍卖前");
-            // await nftAuction.createAuction(10, ethers.parseEther("0.01"), 0, testERC721Address);
-            await nftAuction.createAuction(
-            10,
-            ethers.parseEther("0.01"),
-            testERC721Address,
-            0
-        );
+        // uint256 duration, uint256 startingPrice, uint256 nftTokenId, address nftTokenAddress
+        await nftAuction.createAuction(10, ethers.parseEther("0.01"), tokenId, testERC721Address);
         const auction = await nftAuction._auctions(0)
         console.log("创建拍卖成功：", auction);
 
         // 3. 参与拍卖
         // buyer1使用 ETH 竞拍
-        // placeBid(uint256 auctionId, uint256 price, address tokenAddress)
-        // tx = await nftAuction.connect(buyer1).placeBid(0, ethers.parseEther("0.02"), ethers.ZeroAddress);
+        // uint256 auctionId, address tokenAddress, uint256 price
+        // 这样msg.value没有数据
+        // tx = await nftAuction.connect(buyer1).placeBid(0, ethers.ZeroAddress, ethers.parseEther("0.02"));
         // await tx.wait();
+        // 传递到msg.value
+        tx = await nftAuction.connect(buyer1).placeBid(0, ethers.ZeroAddress, 0, { value: ethers.parseEther("0.02") });
+        await tx.wait();
+
+        console.log("buery1竞拍后：", await nftAuction._auctions(0));
+
         // buyer2使用 USDC 竞拍
+        tx = await testERC20.connect(buyer2).approve(nftAuctionProxy.address, ethers.MaxUint256)
+        await tx.wait()
+        tx = await nftAuction.connect(buyer2).placeBid(0, UsdcAddress, ethers.parseEther("201"));
+        await tx.wait()
 
-        // 3. 购买者参与拍卖
-        // await testERC721.connect(buyer).approve(nftAuctionProxy.address, tokenId);
-        // ETH参与竞价
-        // tx = await nftAuction.connect(buyer1).placeBid(0, 0, ethers.ZeroAddress, { value: ethers.parseEther("0.01") });
-        // await tx.wait()
+        console.log("buery2竞拍后：", await nftAuction._auctions(0));
+        // 预言机：10000： 1
+        
+        // 4. 结束拍卖
+        // 等待 10 s
+        await new Promise((resolve) => setTimeout(resolve, 10 * 1000));
+        await nftAuction.endAuction(0);
+        
+        // 验证结果
+        const auctionResult = await nftAuction._auctions(0);
+        console.log("结束拍卖后读取拍卖成功：：", auctionResult);
+        expect(auctionResult.highestBidder).to.equal(buyer2.address);
+        expect(auctionResult.highestBid).to.equal(ethers.parseEther("201"));
 
-        // USDC参与竞价
-        // tx = await testERC20.connect(buyer1).approve(nftAuctionProxy.address, ethers.MaxUint256)
-        // await tx.wait()
-        // tx = await nftAuction.connect(buyer1).placeBid(0, ethers.parseEther("101"), UsdcAddress);
-        // await tx.wait()
+        // 验证 NFT 所有权
+        const owner = await testERC721.ownerOf(tokenId);
+        console.log("owner::", owner);
+        expect(owner).to.equal(buyer2.address);
     });
 })

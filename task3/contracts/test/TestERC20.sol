@@ -8,8 +8,13 @@ contract TestERC20 is ERC20, ERC20Permit {
     constructor() ERC20("MyToken", "MTK") ERC20Permit("MyToken") {
         _mint(msg.sender, 100000 * 10 ** 18);
     }
-
-    // constructor() ERC20("MyToken", "MTK") {
-    //     _mint(msg.sender, 100000 * 10 ** 18);
-    // }
 }
+// contract TestERC20 is ERC20, ERC20Permit {
+//     constructor() ERC20("MyToken", "MTK") ERC20Permit("MyToken") {
+//         _mint(msg.sender, 100000 * 10 ** 18);
+//     }
+
+//     // constructor() ERC20("MyToken", "MTK") {
+//     //     _mint(msg.sender, 100000 * 10 ** 18);
+//     // }
+// }
