@@ -107,7 +107,7 @@ contract MyMemeToken is ERC20, Ownable {
             "Max daily trades exceeded"
         );
         // 税费计算
-        uint256 txFee = _txFee * amount;
+        uint256 txFee = _txFee / 10000 * amount;
 
         // 调用 ERC20 转账
         // 税金转到专门账户
